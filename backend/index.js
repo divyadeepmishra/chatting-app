@@ -1,92 +1,97 @@
+import cors from "cors";
 import express from "express";
-import cors from "cors"
 import { createServer } from "http";
-import { WebSocket,WebSocketServer } from "ws";
-
+import { WebSocket, WebSocketServer } from "ws";
 
 const app = express();
-const PORT = 8000;
+const PORT = process.env.PORT || 8080;
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
+
 app.use(cors());
+app.use(express.json());
 
-const user = new Map();
-
-app.get("/",(res,req)=>{
-    res.send("Hello World")
-});
+app.get("/", (_, res) => res.send("Hello World!"));
 
 
-const broadcast = (d)=>{
-    const msg = JSON.stringify(d);
-    wss.clients.forEach(client=>{
-        if(client.readyState == WebSocket.OPEN){
-            client.send(msg);
+
+const users = new Map();
+let userIdCounter = 1;
+
+const broadCast = (data) => {
+    const message = JSON.stringify(data);
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(message);
         }
-    }
-    );
-}
+    });
+};
 
-const userId = 0;
 
-wss.on("connection",(ws)=>{
-    const userId = userId++;
-    const newUser ={
-        id:userId,
-        name:`User ${userId}`,
-        ws,
-        };
+wss.on("connection", (ws) => {
+    // console.log("Client connected");
 
-        user.set(userId,newUser);
-    console.log("New user connected:", newUser);
+    const userId = userIdCounter++;
+    const newUser = {
+        id: userId,
+        name: `User${userId}`,
+        socket: ws
+    };
+    users.set(userId, newUser);
 
-    
-    ws.send(JSON.stringify({}));
-    broadcast({
-        type:"userId",
-        userId,
+    // console.log(`User connected: ${JSON.stringify({
+    //     id: userId,
+    //     name: newUser.name
+    // })}`);
+
+    ws.send(JSON.stringify({
+        type: "userId",
+        userId
+    }));
+
+    broadCast({
+        type: "newUser",
+        user: {
+            id: userId,
+            name: newUser.name
+        }
     });
 
-    broadcast({
-        "type":"userList",
-        users:Array.from(users.values()).map(user=>{
-            id:user.id;
-            name:user.name;
-        })
-    })
-
-    ws.on("message",(msg)=>{
-        const userMsg = msg.toString('utf-8');
-        broadcast({
-            type:"message",
-            message:userMsg,
-            userId,
-        })
-    })
-
-    ws.on("close",()=>{
-        user.delete(userId);
-        broadcast({
-            type:"userDisconnected",
-            userId,
-
-        })
+    broadCast({
+        type: "userList",
+        users: Array.from(users.values()).map(user => ({ id: user.id, name: user.name }))
     });
-    ws.on("error",(err)=>{
-        console.error("WebSocket error:", err);
 
+    ws.on("message", (message) => {
+        const textMessage = message.toString("utf-8");
+        // console.log(`Received message from User${userId}: ${textMessage}`);
+
+        broadCast({
+            type: "message",
+            message: textMessage,
+            userId,
+        });
+    });
+
+    ws.on("close", () => {
+        users.delete(userId);
+        // console.log(`User disconnected: User${userId}`);
+
+        broadCast({ type: "userDisconnected", userId });
+    });
+
+    ws.on("error", (err) => {
+        // console.error(`WebSocket error (User${userId}):`, err);
     });
 
     ws.send(JSON.stringify({
-        type:"status",
-        message:"Connected to the Server"
-    }))
+        type: "status",
+        message: "Connected to WebSocket server"
+    }));
+});
 
-    
-})
-
-
+// Start the server
 server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-} );
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
